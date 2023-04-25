@@ -1,0 +1,108 @@
+kind: Secret
+apiVersion: v1
+metadata:
+  name: docker-registry-token
+stringData:
+  .dockerconfigjson: '{"auths":{"https://docker.io":{"username":"fanavar","password":"dckr_pat_QHRxVr5usvd1YWSBDE4Q3Q2vMwE","auth":"ZmFuYXZhcjpkY2tyX3BhdF9RSFJ4VnI1dXN2ZDFZV1NCREU0UTNRMnZNd0U="}}}'
+type: kubernetes.io/dockerconfigjson
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP_NAME}
+  labels:
+    app: ${APP_NAME}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: ${APP_NAME}
+  strategy:
+    type: Recreate
+    recreateParams:
+      timeoutSeconds: "600"
+  template:
+    metadata:
+      labels:
+        app: ${APP_NAME}
+        name: ${APP_NAME}
+    spec:
+      containers:
+        - name: ${APP_NAME}
+          image: ${IMAGE}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+              name: http
+          resources:
+            limits:
+              &a1
+              cpu: "0.2"
+              ephemeral-storage: 0.1G
+              memory: 0.2G
+            requests: *a1
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts: []
+          env:
+#            - name: NODE_ENV
+#              value: production
+#            - name: MESSENGER_APP_URL
+#              value: ${MESSENGER_APP_URL}
+#            - name: NEXT_PUBLIC_MESSENGER_APP_DOMAIN
+#              value: ${NEXT_PUBLIC_MESSENGER_APP_DOMAIN}
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      imagePullSecrets:
+        - name: docker-registry-token
+      volumes: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: ${APP_NAME}
+  name: ${APP_NAME}
+spec:
+  ports:
+    - name: http
+      protocol: TCP
+      targetPort: 3000
+      port: 80
+  selector:
+    app: ${APP_NAME}
+  type: ClusterIP
+---
+kind: Route
+apiVersion: route.openshift.io/v1
+metadata:
+  name: ${APP_NAME}
+spec:
+  host: ${APP_DOMAIN}
+  port:
+    targetPort: http
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+  to:
+    kind: Service
+    name: ${APP_NAME}
+    weight: 100
+  wildcardPolicy: None
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  labels:
+    app: ${APP_NAME}
+  name: ${APP_NAME}
+spec:
+  maxReplicas: 10
+  minReplicas: 1
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ${APP_NAME}
+  targetCPUUtilizationPercentage: 70
